@@ -1,11 +1,11 @@
 <?php
+
 namespace Hackaton\EAVCleaner\Console\Command;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
-use Symfony\Component\Console\Input\InputOption;
 use Magento\Framework\App\Filesystem\DirectoryList;
 
 class RemoveUnusedMediaCommand extends Command
@@ -35,7 +35,7 @@ class RemoveUnusedMediaCommand extends Command
         $countFiles = 0;
         $isDryRun = $input->getOption('dry-run');
 
-        if(!$isDryRun) {
+        if (!$isDryRun) {
             $output->writeln('WARNING: this is not a dry run. If you want to do a dry-run, add --dry-run.');
             $question = new ConfirmationQuestion('Are you sure you want to continue? [No] ', false);
             $this->questionHelper = $this->getHelper('question');
@@ -44,7 +44,7 @@ class RemoveUnusedMediaCommand extends Command
             }
         }
 
-        $table = array();
+        $table = [];
         $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
         $filesystem = $objectManager->get('Magento\Framework\Filesystem');
         $directory = $filesystem->getDirectoryRead(DirectoryList::MEDIA);
@@ -54,18 +54,29 @@ class RemoveUnusedMediaCommand extends Command
         $coreRead = $resource->getConnection('core_read');
         $i = 0;
         $directoryIterator = new \RecursiveDirectoryIterator($imageDir);
+        $values = $coreRead->fetchAll('SELECT mg.value FROM catalog_product_entity_media_gallery_value_to_entity cpvt
+LEFT JOIN catalog_product_entity_media_gallery mg ON cpvt.value_id = mg.value_id
+LEFT JOIN catalog_product_entity p ON p.entity_id = cpvt.entity_id
+WHERE p.entity_id IS NULL');
+
+        $newArray = [];
+        foreach ($values as $value) {
+            $newArray[] = $value['value'];
+        }
 
         foreach (new \RecursiveIteratorIterator($directoryIterator) as $file) {
-
-            if (strpos($file, "/cache") !== false || is_dir($file)) {
+            if (strpos($file, '/cache') !== false || is_dir($file)) {
                 continue;
             }
 
-            $filePath = str_replace($imageDir, "", $file);
-            if (empty($filePath)) continue;
-            $value = $coreRead->fetchOne('SELECT value FROM ' . $mediaGallery . ' WHERE value = ?', array($filePath));
-            if ($value == false) {
-                $row = array();
+            $filePath = str_replace($imageDir, '', $file);
+            if (empty($filePath)) {
+                continue;
+            }
+            $value = $coreRead->fetchOne('SELECT value FROM ' . $mediaGallery . ' WHERE value = ?', [$filePath]);
+            // Also check to see if the file is in the list of all unlinked images.
+            if ($value == false || in_array($filePath, $newArray)) {
+                $row = [];
                 $row[] = $filePath;
                 $table[] = $row;
                 $filesize += filesize($file);
@@ -81,11 +92,11 @@ class RemoveUnusedMediaCommand extends Command
             }
         }
 
-        $headers = array();
+        $headers = [];
         $headers[] = 'filepath';
         $this->getHelper('table')
             ->setHeaders($headers)
             ->setRows($table)->render($output);
-        $output->writeln("Found " . number_format($filesize / 1024 / 1024, '2') . " MB unused images in $countFiles files");
+        $output->writeln('Found ' . number_format($filesize / 1024 / 1024, '2') . " MB unused images in $countFiles files");
     }
 }
